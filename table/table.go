@@ -20,6 +20,9 @@ type Model struct {
 	focus  bool
 	styles Styles
 
+	flexColumnWidth bool
+	flexTotal       int
+
 	viewport viewport.Model
 	start    int
 	end      int
@@ -137,6 +140,7 @@ func New(opts ...Option) Model {
 func WithColumns(cols []Column) Option {
 	return func(m *Model) {
 		m.cols = cols
+		m.recalculateFlexTotal()
 	}
 }
 
@@ -151,6 +155,13 @@ func WithRows(rows []Row) Option {
 func WithHeight(h int) Option {
 	return func(m *Model) {
 		m.viewport.Height = h
+	}
+}
+
+// WithFlexColumnWidth sets the table to use flex column width instead of explicit width.
+func WithFlexColumnWidth(b bool) Option {
+	return func(m *Model) {
+		m.flexColumnWidth = b
 	}
 }
 
@@ -285,6 +296,7 @@ func (m *Model) SetRows(r []Row) {
 // SetColumns sets a new columns state.
 func (m *Model) SetColumns(c []Column) {
 	m.cols = c
+	m.recalculateFlexTotal()
 	m.UpdateViewport()
 }
 
@@ -379,11 +391,19 @@ func (m *Model) FromValues(value, separator string) {
 	m.SetRows(rows)
 }
 
+func (m Model) columnWidth(col Column) int {
+	if !m.flexColumnWidth || m.flexTotal == 0 {
+		return col.Width
+	}
+	return (m.Width() - 6) * col.Width / m.flexTotal
+}
+
 func (m Model) headersView() string {
 	var s = make([]string, 0, len(m.cols))
 	for _, col := range m.cols {
-		style := lipgloss.NewStyle().Width(col.Width).MaxWidth(col.Width).Inline(true)
-		renderedCell := style.Render(runewidth.Truncate(col.Title, col.Width, "…"))
+		colWidth := m.columnWidth(col)
+		style := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).Inline(true)
+		renderedCell := style.Render(runewidth.Truncate(col.Title, colWidth, "…"))
 		s = append(s, m.styles.Header.Render(renderedCell))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Left, s...)
@@ -392,8 +412,9 @@ func (m Model) headersView() string {
 func (m *Model) renderRow(rowID int) string {
 	var s = make([]string, 0, len(m.cols))
 	for i, value := range m.rows[rowID] {
-		style := lipgloss.NewStyle().Width(m.cols[i].Width).MaxWidth(m.cols[i].Width).Inline(true)
-		renderedCell := m.styles.Cell.Render(style.Render(runewidth.Truncate(value, m.cols[i].Width, "…")))
+		colWidth := m.columnWidth(m.cols[i])
+		style := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).Inline(true)
+		renderedCell := m.styles.Cell.Render(style.Render(runewidth.Truncate(value, colWidth, "…")))
 		s = append(s, renderedCell)
 	}
 
@@ -404,6 +425,13 @@ func (m *Model) renderRow(rowID int) string {
 	}
 
 	return row
+}
+
+func (m *Model) recalculateFlexTotal() {
+	m.flexTotal = 0
+	for _, col := range m.cols {
+		m.flexTotal += col.Width
+	}
 }
 
 func max(a, b int) int {
