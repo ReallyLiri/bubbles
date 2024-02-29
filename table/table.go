@@ -395,7 +395,7 @@ func (m Model) columnWidth(col Column) int {
 	if !m.flexColumnWidth || m.flexTotal == 0 {
 		return col.Width
 	}
-	return (m.Width() - 6) * col.Width / m.flexTotal
+	return (m.Width() - m.flexTotal) * col.Width / m.flexTotal
 }
 
 func (m Model) headersView() string {
