@@ -3,6 +3,8 @@ module github.com/charmbracelet/bubbles
 go 1.18
 
 require (
+	github.com/MakeNowJust/heredoc v1.0.0
+	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbletea v0.25.0
 	github.com/charmbracelet/harmonica v0.2.0
@@ -12,8 +14,8 @@ require (
 	github.com/mattn/go-runewidth v0.0.15
 	github.com/muesli/reflow v0.3.0
 	github.com/muesli/termenv v0.15.2
-	github.com/rivo/uniseg v0.4.6
-	github.com/sahilm/fuzzy v0.1.1-0.20230530133925-c48e322e2a8f
+	github.com/rivo/uniseg v0.4.7
+	github.com/sahilm/fuzzy v0.1.1
 )
 
 require (

@@ -50,6 +50,19 @@ type KeyMap struct {
 	GotoBottom   key.Binding
 }
 
+// ShortHelp implements the KeyMap interface.
+func (km KeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{km.LineUp, km.LineDown}
+}
+
+// FullHelp implements the KeyMap interface.
+func (km KeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{km.LineUp, km.LineDown, km.GotoTop, km.GotoBottom},
+		{km.PageUp, km.PageDown, km.HalfPageUp, km.HalfPageDown},
+	}
+}
+
 // DefaultKeyMap returns a default set of keybindings.
 func DefaultKeyMap() KeyMap {
 	const spacebar = " "
@@ -287,6 +300,11 @@ func (m Model) Rows() []Row {
 	return m.rows
 }
 
+// Columns returns the current columns.
+func (m Model) Columns() []Column {
+	return m.cols
+}
+
 // SetRows sets a new rows state.
 func (m *Model) SetRows(r []Row) {
 	m.rows = r
@@ -402,6 +420,9 @@ func (m Model) headersView() string {
 	var s = make([]string, 0, len(m.cols))
 	for _, col := range m.cols {
 		colWidth := m.columnWidth(col)
+		if colWidth <= 0 {
+			continue
+		}
 		style := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).Inline(true)
 		renderedCell := style.Render(runewidth.Truncate(col.Title, colWidth, "…"))
 		s = append(s, m.styles.Header.Render(renderedCell))
@@ -413,6 +434,9 @@ func (m *Model) renderRow(rowID int) string {
 	var s = make([]string, 0, len(m.cols))
 	for i, value := range m.rows[rowID] {
 		colWidth := m.columnWidth(m.cols[i])
+		if colWidth <= 0 {
+			continue
+		}
 		style := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).Inline(true)
 		renderedCell := m.styles.Cell.Render(style.Render(runewidth.Truncate(value, colWidth, "…")))
 		s = append(s, renderedCell)
