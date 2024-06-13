@@ -468,7 +468,7 @@ func (m *Model) renderRow(rowID int) string {
 
 	row := lipgloss.JoinHorizontal(lipgloss.Left, s...)
 
-	if r == m.cursor {
+	if rowID == m.cursor {
 		return m.styles.Selected.Render(row)
 	}
 

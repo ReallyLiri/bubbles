@@ -1032,7 +1032,7 @@ func (m Model) View() string {
 		availHeight -= lipgloss.Height(help)
 	}
 
-	content := lipgloss.NewStyle().Height(availHeight).Render(m.populatedView())
+	content := lipgloss.NewStyle().Height(availHeight).Width(m.width).Render(m.populatedView())
 	sections = append(sections, content)
 
 	if m.showPagination {
