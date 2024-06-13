@@ -14,11 +14,12 @@ import (
 type Model struct {
 	KeyMap KeyMap
 
-	cols   []Column
-	rows   []Row
-	cursor int
-	focus  bool
-	styles Styles
+	cols      []Column
+	rows      []Row
+	cursor    int
+	focus     bool
+	styles    Styles
+	styleFunc StyleFunc
 
 	flexColumnWidth bool
 	flexTotal       int
@@ -167,7 +168,7 @@ func WithRows(rows []Row) Option {
 // WithHeight sets the height of the table.
 func WithHeight(h int) Option {
 	return func(m *Model) {
-		m.viewport.Height = h
+		m.viewport.Height = h - lipgloss.Height(m.headersView())
 	}
 }
 
@@ -196,6 +197,13 @@ func WithFocused(f bool) Option {
 func WithStyles(s Styles) Option {
 	return func(m *Model) {
 		m.styles = s
+	}
+}
+
+// WithStyleFunc sets the table style func which can determine a cell style per column, row, and selected state.
+func WithStyleFunc(f StyleFunc) Option {
+	return func(m *Model) {
+		m.styleFunc = f
 	}
 }
 
@@ -326,7 +334,7 @@ func (m *Model) SetWidth(w int) {
 
 // SetHeight sets the height of the viewport of the table.
 func (m *Model) SetHeight(h int) {
-	m.viewport.Height = h
+	m.viewport.Height = h - lipgloss.Height(m.headersView())
 	m.UpdateViewport()
 }
 
@@ -359,7 +367,7 @@ func (m *Model) MoveUp(n int) {
 	case m.start == 0:
 		m.viewport.SetYOffset(clamp(m.viewport.YOffset, 0, m.cursor))
 	case m.start < m.viewport.Height:
-		m.viewport.SetYOffset(clamp(m.viewport.YOffset+n, 0, m.cursor))
+		m.viewport.YOffset = (clamp(clamp(m.viewport.YOffset+n, 0, m.cursor), 0, m.viewport.Height))
 	case m.viewport.YOffset >= 1:
 		m.viewport.YOffset = clamp(m.viewport.YOffset+n, 1, m.viewport.Height)
 	}
@@ -373,9 +381,9 @@ func (m *Model) MoveDown(n int) {
 	m.UpdateViewport()
 
 	switch {
-	case m.end == len(m.rows):
+	case m.end == len(m.rows) && m.viewport.YOffset > 0:
 		m.viewport.SetYOffset(clamp(m.viewport.YOffset-n, 1, m.viewport.Height))
-	case m.cursor > (m.end-m.start)/2:
+	case m.cursor > (m.end-m.start)/2 && m.viewport.YOffset > 0:
 		m.viewport.SetYOffset(clamp(m.viewport.YOffset-n, 1, m.cursor))
 	case m.viewport.YOffset > 1:
 	case m.cursor > m.viewport.YOffset+m.viewport.Height-1:
@@ -416,8 +424,11 @@ func (m Model) columnWidth(col Column) int {
 	return (m.Width() - m.flexTotal) * col.Width / m.flexTotal
 }
 
+// StyleFunc is a function that can be used to customize the style of a table cell based on the row and column index.
+type StyleFunc func(row, col int, value string) lipgloss.Style
+
 func (m Model) headersView() string {
-	var s = make([]string, 0, len(m.cols))
+	s := make([]string, 0, len(m.cols))
 	for _, col := range m.cols {
 		colWidth := m.columnWidth(col)
 		if colWidth <= 0 {
@@ -437,14 +448,27 @@ func (m *Model) renderRow(rowID int) string {
 		if colWidth <= 0 {
 			continue
 		}
-		style := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).Inline(true)
-		renderedCell := m.styles.Cell.Render(style.Render(runewidth.Truncate(value, colWidth, "…")))
+
+		if m.cols[i].Width <= 0 {
+			continue
+		}
+		var cellStyle lipgloss.Style
+		if m.styleFunc != nil {
+			cellStyle = m.styleFunc(rowID, i, value)
+			if rowID == m.cursor {
+				cellStyle.Inherit(m.styles.Selected)
+			}
+		} else {
+			cellStyle = m.styles.Cell
+		}
+		style := lipgloss.NewStyle().Width(m.cols[i].Width).MaxWidth(m.cols[i].Width).Inline(true)
+		renderedCell := cellStyle.Render(style.Render(runewidth.Truncate(value, m.cols[i].Width, "…")))
 		s = append(s, renderedCell)
 	}
 
 	row := lipgloss.JoinHorizontal(lipgloss.Left, s...)
 
-	if rowID == m.cursor {
+	if r == m.cursor {
 		return m.styles.Selected.Render(row)
 	}
 

@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/harmonica"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/lucasb-eyer/go-colorful"
-	"github.com/muesli/reflow/ansi"
 	"github.com/muesli/termenv"
 )
 
@@ -283,7 +283,7 @@ func (m Model) View() string {
 func (m Model) ViewAs(percent float64) string {
 	b := strings.Builder{}
 	percentView := m.percentageView(percent)
-	m.barView(&b, percent, ansi.PrintableRuneWidth(percentView))
+	m.barView(&b, percent, ansi.StringWidth(percentView))
 	b.WriteString(percentView)
 	return b.String()
 }
@@ -309,7 +309,7 @@ func (m Model) barView(b *strings.Builder, percent float64, textWidth int) {
 			if fw == 1 {
 				// this is up for debate: in a gradient of width=1, should the
 				// single character rendered be the first color, the last color
-				// or exactly 50% inbetween? I opted for 50%
+				// or exactly 50% in between? I opted for 50%
 				p = 0.5
 			} else if m.scaleRamp {
 				p = float64(i) / float64(fw-1)

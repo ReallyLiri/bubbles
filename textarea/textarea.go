@@ -3,6 +3,7 @@ package textarea
 import (
 	"crypto/sha256"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -14,13 +15,13 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	rw "github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
 )
 
 const (
 	minHeight        = 1
-	minWidth         = 2
 	defaultHeight    = 6
 	defaultWidth     = 40
 	defaultCharLimit = 400
@@ -29,8 +30,10 @@ const (
 )
 
 // Internal messages for clipboard operations.
-type pasteMsg string
-type pasteErrMsg struct{ error }
+type (
+	pasteMsg    string
+	pasteErrMsg struct{ error }
+)
 
 // KeyMap is the key bindings for different actions within the textarea.
 type KeyMap struct {
@@ -260,7 +263,7 @@ func New() Model {
 		FocusedStyle:         focusedStyle,
 		BlurredStyle:         blurredStyle,
 		cache:                memoization.NewMemoCache[line, [][]rune](defaultMaxHeight),
-		EndOfBufferCharacter: '~',
+		EndOfBufferCharacter: ' ',
 		ShowLineNumbers:      true,
 		Cursor:               cur,
 		KeyMap:               DefaultKeyMap,
@@ -605,8 +608,7 @@ func (m *Model) transposeLeft() {
 	if m.col >= len(m.value[m.row]) {
 		m.SetCursor(m.col - 1)
 	}
-	m.value[m.row][m.col-1], m.value[m.row][m.col] =
-		m.value[m.row][m.col], m.value[m.row][m.col-1]
+	m.value[m.row][m.col-1], m.value[m.row][m.col] = m.value[m.row][m.col], m.value[m.row][m.col-1]
 	if m.col < len(m.value[m.row]) {
 		m.SetCursor(m.col + 1)
 	}
@@ -862,32 +864,40 @@ func (m *Model) moveToEnd() {
 // It is important that the width of the textarea be exactly the given width
 // and no more.
 func (m *Model) SetWidth(w int) {
-	if m.MaxWidth > 0 {
-		m.viewport.Width = clamp(w, minWidth, m.MaxWidth)
-	} else {
-		m.viewport.Width = max(w, minWidth)
-	}
-
-	// Since the width of the textarea input is dependent on the width of the
-	// prompt and line numbers, we need to calculate it by subtracting.
-	inputWidth := w
-	if m.ShowLineNumbers {
-		inputWidth -= uniseg.StringWidth(fmt.Sprintf(m.lineNumberFormat, 0))
-	}
-
-	// Account for base style borders and padding.
-	inputWidth -= m.style.Base.GetHorizontalFrameSize()
-
+	// Update prompt width only if there is no prompt function as SetPromptFunc
+	// updates the prompt width when it is called.
 	if m.promptFunc == nil {
 		m.promptWidth = uniseg.StringWidth(m.Prompt)
 	}
 
-	inputWidth -= m.promptWidth
-	if m.MaxWidth > 0 {
-		m.width = clamp(inputWidth, minWidth, m.MaxWidth)
-	} else {
-		m.width = max(inputWidth, minWidth)
+	// Add base style borders and padding to reserved outer width.
+	reservedOuter := m.style.Base.GetHorizontalFrameSize()
+
+	// Add prompt width to reserved inner width.
+	reservedInner := m.promptWidth
+
+	// Add line number width to reserved inner width.
+	if m.ShowLineNumbers {
+		const lnWidth = 4 // Up to 3 digits for line number plus 1 margin.
+		reservedInner += lnWidth
 	}
+
+	// Input width must be at least one more than the reserved inner and outer
+	// width. This gives us a minimum input width of 1.
+	minWidth := reservedInner + reservedOuter + 1
+	inputWidth := max(w, minWidth)
+
+	// Input width must be no more than maximum width.
+	if m.MaxWidth > 0 {
+		inputWidth = min(inputWidth, m.MaxWidth)
+	}
+
+	// Since the width of the viewport and input area is dependent on the width of
+	// borders, prompt and line numbers, we need to calculate it by subtracting
+	// the reserved width from them.
+
+	m.viewport.Width = inputWidth - reservedOuter
+	m.width = inputWidth - reservedOuter - reservedInner
 }
 
 // SetPromptFunc supersedes the Prompt field and sets a dynamic prompt
@@ -1138,10 +1148,7 @@ func (m Model) View() string {
 		s.WriteString(prompt)
 		displayLine++
 
-		if m.ShowLineNumbers {
-			lineNumber := m.style.EndOfBuffer.Render(string(m.EndOfBufferCharacter))
-			s.WriteString(lineNumber)
-		}
+		s.WriteString(m.style.EndOfBuffer.Render(string(m.EndOfBufferCharacter)))
 		s.WriteRune('\n')
 	}
 
@@ -1166,36 +1173,71 @@ func (m Model) getPromptString(displayLine int) (prompt string) {
 func (m Model) placeholderView() string {
 	var (
 		s     strings.Builder
-		p     = rw.Truncate(m.Placeholder, m.width, "...")
+		p     = m.Placeholder
 		style = m.style.Placeholder.Inline(true)
 	)
 
-	prompt := m.getPromptString(0)
-	prompt = m.style.Prompt.Render(prompt)
-	s.WriteString(m.style.CursorLine.Render(prompt))
+	// word wrap lines
+	pwordwrap := ansi.Wordwrap(p, m.width, "")
+	// wrap lines (handles lines that could not be word wrapped)
+	pwrap := ansi.Hardwrap(pwordwrap, m.width, true)
+	// split string by new lines
+	plines := strings.Split(strings.TrimSpace(pwrap), "\n")
 
-	if m.ShowLineNumbers {
-		s.WriteString(m.style.CursorLine.Render(m.style.CursorLineNumber.Render((fmt.Sprintf(m.lineNumberFormat, 1)))))
-	}
+	for i := 0; i < m.height; i++ {
+		lineStyle := m.style.Placeholder
+		lineNumberStyle := m.style.LineNumber
+		if len(plines) > i {
+			lineStyle = m.style.CursorLine
+			lineNumberStyle = m.style.CursorLineNumber
+		}
 
-	m.Cursor.TextStyle = m.style.Placeholder
-	m.Cursor.SetChar(string(p[0]))
-	s.WriteString(m.style.CursorLine.Render(m.Cursor.View()))
-
-	// The rest of the placeholder text
-	s.WriteString(m.style.CursorLine.Render(style.Render(p[1:] + strings.Repeat(" ", max(0, m.width-uniseg.StringWidth(p))))))
-
-	// The rest of the new lines
-	for i := 1; i < m.height; i++ {
-		s.WriteRune('\n')
+		// render prompt
 		prompt := m.getPromptString(i)
 		prompt = m.style.Prompt.Render(prompt)
-		s.WriteString(prompt)
+		s.WriteString(lineStyle.Render(prompt))
 
+		// when show line numbers enabled:
+		// - render line number for only the cursor line
+		// - indent other placeholder lines
+		// this is consistent with vim with line numbers enabled
 		if m.ShowLineNumbers {
+			var ln string
+
+			switch {
+			case i == 0:
+				ln = strconv.Itoa(i + 1)
+				fallthrough
+			case len(plines) > i:
+				s.WriteString(lineStyle.Render(lineNumberStyle.Render(fmt.Sprintf(m.lineNumberFormat, ln))))
+			default:
+			}
+		}
+
+		switch {
+		// first line
+		case i == 0:
+			// first character of first line as cursor with character
+			m.Cursor.TextStyle = m.style.Placeholder
+			m.Cursor.SetChar(string(plines[0][0]))
+			s.WriteString(lineStyle.Render(m.Cursor.View()))
+
+			// the rest of the first line
+			s.WriteString(lineStyle.Render(style.Render(plines[0][1:] + strings.Repeat(" ", max(0, m.width-uniseg.StringWidth(plines[0]))))))
+		// remaining lines
+		case len(plines) > i:
+			// current line placeholder text
+			if len(plines) > i {
+				s.WriteString(lineStyle.Render(style.Render(plines[i] + strings.Repeat(" ", max(0, m.width-uniseg.StringWidth(plines[i]))))))
+			}
+		default:
+			// end of line buffer character
 			eob := m.style.EndOfBuffer.Render(string(m.EndOfBufferCharacter))
 			s.WriteString(eob)
 		}
+
+		// terminate with new line
+		s.WriteRune('\n')
 	}
 
 	m.viewport.SetContent(s.String())
